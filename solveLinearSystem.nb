@@ -1,0 +1,26 @@
+(* Define function to solve linear system *)
+solveLinearSystem[A_, b_] := Module[{x, Ainv},
+   Ainv = Inverse[A];
+   If[Ainv === $Failed,      Print["Error: The coefficient matrix is singular."];
+      Return[$Failed]
+   ];
+   x = Ainv.b;
+   Return[x]
+];
+
+(* Generate a random matrix and vector *)
+n = 5; (* size of matrix *)
+SeedRandom[123];
+A = RandomReal[{-10, 10}, {n, n}];
+b = RandomReal[{-10, 10}, n];
+
+(* Solve the system of linear equations *)
+x = solveLinearSystem[A, b];
+
+(* Print the results *)
+Print["The coefficient matrix A is:"];
+MatrixForm[A]
+Print["The constant vector b is:"];
+ColumnForm[b]
+Print["The solution vector x is:"];
+ColumnForm[x]
