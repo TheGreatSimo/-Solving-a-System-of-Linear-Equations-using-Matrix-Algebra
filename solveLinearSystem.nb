@@ -1,26 +1,209 @@
-(* Define function to solve linear system *)
-solveLinearSystem[A_, b_] := Module[{x, Ainv},
-   Ainv = Inverse[A];
-   If[Ainv === $Failed,      Print["Error: The coefficient matrix is singular."];
-      Return[$Failed]
+solveLinearSystem[A_, b_, method_] := Module[{x, Ainv, L, U, P, Q, R, SVD, xGrad, res, gradDescent},
+   Switch[method,
+      "Inverse",
+      If[Det[A] == 0,
+         x = $Failed,
+         Ainv = Inverse[A];
+         x = Ainv.b
+      ],
+      
+      "LU",
+      {L, U, P} = LUDecomposition[A];
+      x = LinearSolve[U, LinearSolve[L, P.b]],
+      
+      "QR",
+      {Q, R} = QRDecomposition[A];
+      x = LinearSolve[R, Transpose[Q].b],
+      
+      "SVD",
+      SVD = SingularValueDecomposition[A];
+      x = SVD[[3]].DiagonalMatrix[1/SVD[[2]]].Transpose[SVD[[1]]].b,
+      
+      "Cholesky",
+      If[PositiveDefiniteMatrixQ[A],
+         L = CholeskyDecomposition[A];
+         x = LinearSolve[L, LinearSolve[Transpose[L], b]],
+         x = $Failed
+      ],
+      
+      "GradientDescent",
+      gradDescent = GradientDescentSolve[A, b];
+      x = gradDescent[[1]];
+      res = gradDescent[[2]];
+      
+      _,
+      x = $Failed
    ];
-   x = Ainv.b;
-   Return[x]
+   
+   res = If[x =!= $Failed, A.x - b, $Failed];
+   {x, res}
 ];
 
-(* Generate a random matrix and vector *)
-n = 5; (* size of matrix *)
+GradientDescentSolve[A_, b_, learningRate_:0.01, tolerance_:10^-6, maxIter_:1000] := Module[
+   {x = RandomReal[{-1, 1}, Length[b]], grad, iter = 0, diff},
+   While[iter < maxIter,
+      grad = 2 Transpose[A].(A.x - b);
+      x = x - learningRate * grad;
+      diff = Norm[grad];
+      If[diff < tolerance, Break[]];
+      iter++
+   ];
+   Return[{x, diff}]
+];
+
+computeMatrixProperties[A_] := Module[{det, rank, trace, eigenvals, eigenvecs, frobeniusNorm, 
+   logA, expA, pinvA, condNumber, nullSpace, rowReduce, normA, normInf, norm1, norm2, svd},
+   
+   det = Det[A];
+   rank = MatrixRank[A];
+   trace = Tr[A];
+   {eigenvals, eigenvecs} = Eigensystem[A];
+   frobeniusNorm = Norm[A, "Frobenius"];
+   logA = MatrixLog[A];
+   expA = MatrixExp[A];
+   pinvA = PseudoInverse[A];
+   condNumber = ConditionNumber[A];
+   nullSpace = NullSpace[A];
+   rowReduce = RowReduce[A];
+   normA = Norm[A];
+   normInf = Norm[A, Infinity];
+   norm1 = Norm[A, 1];
+   norm2 = Norm[A, 2];
+   
+   svd = SingularValueDecomposition[A];
+   {det, rank, trace, eigenvals, eigenvecs, frobeniusNorm, logA, expA, pinvA, condNumber, 
+    nullSpace, rowReduce, normA, normInf, norm1, norm2, svd}
+];
+
+performDecompositions[A_] := Module[{lu, qr, svd, chol, gramSchmidt, pseudoInv},
+   lu = LUDecomposition[A];
+   qr = QRDecomposition[A];
+   svd = SingularValueDecomposition[A];
+   chol = If[PositiveDefiniteMatrixQ[A], CholeskyDecomposition[A], $Failed];
+   gramSchmidt = QRDecomposition[A, Method -> "GramSchmidt"];
+   pseudoInv = PseudoInverse[A];
+   
+   {lu, qr, svd, chol, gramSchmidt, pseudoInv}
+];
+
+extendedMatrixOperations[A_] := Module[{sqrtA, invA, power2, power3, power4, eigVals, eigVecs, 
+   expA, logA, norm},
+   sqrtA = MatrixPower[A, 1/2];
+   invA = Inverse[A];
+   power2 = MatrixPower[A, 2];
+   power3 = MatrixPower[A, 3];
+   power4 = MatrixPower[A, 4];
+   {eigVals, eigVecs} = Eigensystem[A];
+   expA = MatrixExp[A];
+   logA = MatrixLog[A];
+   norm = Norm[A];
+   
+   {sqrtA, invA, power2, power3, power4, eigVals, eigVecs, expA, logA, norm}
+];
+
+visualizeMatrixProperties[A_] := Module[{heatmap, eigenValuePlot, normPlot, svdPlot},
+   heatmap = ArrayPlot[A, ColorFunction -> "TemperatureMap", Frame -> False];
+   eigenValuePlot = ListPlot[Eigenvalues[A], PlotStyle -> Red, 
+     AxesLabel -> {"Index", "Eigenvalue"}, PlotLabel -> "Eigenvalues Plot"];
+   normPlot = ListPlot[{Norm[A, "Frobenius"], Norm[A, Infinity], Norm[A, 1], Norm[A, 2]}, 
+     PlotStyle -> Blue, PlotMarkers -> {Automatic, 12},
+     AxesLabel -> {"Norm Type", "Norm Value"}, 
+     PlotLabel -> "Matrix Norms"];
+   svdPlot = ListLinePlot[SingularValues[A], PlotStyle -> {Thick, Green},
+     AxesLabel -> {"Index", "Singular Value"}, 
+     PlotLabel -> "Singular Values Plot"];
+   
+   {heatmap, eigenValuePlot, normPlot, svdPlot}
+];
+
+generateRandomMatrix[n_, range_] := RandomReal[range, {n, n}];
+generateRandomVector[n_, range_] := RandomReal[range, n];
+generatePositiveDefiniteMatrix[n_] := Module[{P},
+   P = RandomReal[{-10, 10}, {n, n}];
+   P = Transpose[P].P + IdentityMatrix[n];
+   Return[P]
+];
+
+n = 5;
 SeedRandom[123];
-A = RandomReal[{-10, 10}, {n, n}];
-b = RandomReal[{-10, 10}, n];
+A = generateRandomMatrix[n, {-10, 10}];
+b = generateRandomVector[n, {-10, 10}];
+A2 = generateRandomMatrix[n, {-5, 5}];
+b2 = generateRandomVector[n, {-5, 5}];
+A3 = RandomReal[{-10, 10}, {n, n}];
+A3 = Transpose[A3].A3;
+A4 = generatePositiveDefiniteMatrix[n];
+A5 = generatePositiveDefiniteMatrix[n];
 
-(* Solve the system of linear equations *)
-x = solveLinearSystem[A, b];
+{xInverse, resInverse} = solveLinearSystem[A, b, "Inverse"];
+{xLU, resLU} = solveLinearSystem[A, b, "LU"];
+{xQR, resQR} = solveLinearSystem[A, b, "QR"];
+{xSVD, resSVD} = solveLinearSystem[A, b, "SVD"];
+{xCholesky, resCholesky} = solveLinearSystem[A, b, "Cholesky"];
+{xGD, resGD} = solveLinearSystem[A, b, "GradientDescent"];
 
-(* Print the results *)
-Print["The coefficient matrix A is:"];
-MatrixForm[A]
-Print["The constant vector b is:"];
-ColumnForm[b]
-Print["The solution vector x is:"];
-ColumnForm[x]
+{det, rank, trace, eigenvals, eigenvecs, frobeniusNorm, logA, expA, pinvA, condNumber, 
+ nullSpace, rowReduce, normA, normInf, norm1, norm2, svd} = computeMatrixProperties[A];
+
+{lu, qr, svdDecomp, chol, gramSchmidt, pseudoInv} = performDecompositions[A];
+
+{sqrtA, invA, power2, power3, power4, eigVals, eigVecs, expA, logA, norm} = extendedMatrixOperations[A];
+
+{heatmap, eigenValuePlot, normPlot, svdPlot} = visualizeMatrixProperties[A];
+
+results = {
+  "Solution with Inverse Method" -> {xInverse, resInverse},
+  "Solution with LU Decomposition" -> {xLU, resLU},
+  "Solution with QR Decomposition" -> {xQR, resQR},
+  "Solution with SVD Decomposition" -> {xSVD, resSVD},
+  "Solution with Cholesky Decomposition" -> {xCholesky, resCholesky},
+  "Solution with Gradient Descent" -> {xGD, resGD},
+  
+  "Matrix Properties" -> {
+    "Determinant" -> det,
+    "Rank" -> rank,
+    "Trace" -> trace,
+    "Eigenvalues" -> eigenvals,
+    "Eigenvectors" -> eigenvecs,
+    "Frobenius Norm" -> frobeniusNorm,
+    "Matrix Logarithm" -> logA,
+    "Matrix Exponential" -> expA,
+    "Pseudoinverse" -> pinvA,
+    "Condition Number" -> condNumber,
+    "Null Space" -> nullSpace,
+    "Row Reduced Form" -> rowReduce,
+    "Norm (Various)" -> {normA, normInf, norm1, norm2},
+    "SVD" -> svd
+  },
+  
+  "Matrix Decompositions" -> {
+    "LU Decomposition" -> lu,
+    "QR Decomposition" -> qr,
+    "SVD Decomposition" -> svdDecomp,
+    "Cholesky Decomposition" -> chol,
+    "Gram-Schmidt QR" -> gramSchmidt,
+    "Pseudoinverse" -> pseudoInv
+  },
+  
+  "Extended Matrix Operations" -> {
+    "Square Root Matrix" -> sqrtA,
+    "Inverse Matrix" -> invA,
+    "Matrix Power 2" -> power2,
+    "Matrix Power 3" -> power3,
+    "Matrix Power 4" -> power4,
+    "Eigenvalues (Extended)" -> eigVals,
+    "Eigenvectors (Extended)" -> eigVecs,
+    "Matrix Exponential" -> expA,
+    "Matrix Logarithm" -> logA,
+    "Norm" -> norm
+  },
+  
+  "Visualizations" -> {
+    "Heatmap" -> heatmap,
+    "Eigenvalue Plot" -> eigenValuePlot,
+    "Matrix Norms Plot" -> normPlot,
+    "SVD Plot" -> svdPlot
+  }
+};
+
+results
